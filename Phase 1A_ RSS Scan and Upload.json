@@ -126,18 +126,17 @@
     },
     {
       "parameters": {
-        "pollTimes": {
-          "item": [
+        "rule": {
+          "interval": [
             {
-              "mode": "everyX",
-              "value": 24
+              "triggerAtHour": 6,
+              "triggerAtMinute": 15
             }
           ]
-        },
-        "feedUrl": "https://rss.beehiiv.com/feeds/22I6c0vJXV.xml"
+        }
       },
-      "type": "n8n-nodes-base.rssFeedReadTrigger",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
       "position": [
         0,
         1200
@@ -858,33 +857,6 @@
     },
     {
       "parameters": {
-        "operation": "upload",
-        "bucketName": "n8n-ai-news-stories",
-        "fileName": "={{ $input.item.json.uploadFileName + \".html\" }}",
-        "binaryData": false,
-        "fileContent": "={{ $('get_url_content-rss').item.json.data.markdown }}",
-        "additionalFields": {}
-      },
-      "type": "n8n-nodes-base.s3",
-      "typeVersion": 1,
-      "position": [
-        1648,
-        720
-      ],
-      "id": "0e15da8f-e491-4e1d-9d3c-e78bcfc99e7a",
-      "name": "upload_html-rss",
-      "retryOnFail": true,
-      "waitBetweenTries": 5000,
-      "maxTries": 5,
-      "credentials": {
-        "s3": {
-          "id": "WRnQEZaYQvFm8YY3",
-          "name": "Cloudflare R2 S3 Format Datalake"
-        }
-      }
-    },
-    {
-      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
@@ -1247,11 +1219,6 @@
         [
           {
             "node": "upload_markdown-rss",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "upload_html-rss",
             "type": "main",
             "index": 0
           },

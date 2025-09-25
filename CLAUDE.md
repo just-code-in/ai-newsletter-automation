@@ -480,6 +480,13 @@ Based on analysis of 394KB (4,926-line) raw newsletter input revealing significa
 - **Function Coverage**: ✅ All 8 requirements implemented
 - **Performance**: Within expected 30-60% reduction range
 
+#### Stage 1 Production Fixes ✅ APPLIED
+- **Phase 1B Buffer Error**: Fixed field reference mismatch causing S3 upload failures
+- **taaft_trigger Schedule**: Changed from RSS feed to daily 6:15am schedule trigger
+- **HTML Download Elimination**: Removed redundant HTML uploads (33% storage reduction)
+- **Error Handling**: Added content validation to prevent undefined buffer errors
+- **File Output**: Now produces only `.md` and `.urls.json` files (no `.html`)
+
 ### **STAGE 2: Enhanced Content Intelligence** ⏳ PLANNED
 **Goal**: Replace simple algorithms with Claude-powered semantic understanding
 **Files Modified**: Phase 2 curation workflow
