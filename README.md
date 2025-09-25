@@ -16,19 +16,27 @@ The automation scans for new `.md` files since the last successful run, download
 
 ## Setup Instructions
 
-1. **Import Workflow**: Import `newsletter-download-workflow.json` into your n8n instance
+1. **Import Workflows**: Import the JSON workflow files into your n8n instance:
+   - `phase2-simple-dedup.json` - Content curation workflow
+   - `phase3a-newsletter-generation.json` - Newsletter generation workflow
 
-2. **Configure Credentials**: Ensure "Cloudflare R2 S3 Format Datalake" credentials are configured with:
-   - Bucket: `n8n-ai-news-stories`
-   - Proper S3-compatible API access to Cloudflare R2
+2. **Configure Credentials**: Set up the following credentials in n8n:
+   - **Cloudflare R2 S3**: Your R2 bucket credentials for file storage
+   - **Gmail OAuth2**: Your Gmail account for notification emails
+   - **Claude 3.5 Sonnet**: Anthropic API credentials for AI generation
 
-3. **Test First Run**: Use manual trigger to test the workflow before scheduling
+3. **Configure Settings**: Update workflow parameters:
+   - Replace bucket names with your R2 bucket
+   - Update email addresses for notifications
+   - Set your preferred newsletter format and style
+
+4. **Test Setup**: Use manual triggers to test each workflow before scheduling
 
 ## File Structure
 
 ### Input Files (R2 Bucket)
 ```
-n8n-ai-news-stories/
+your-bucket-name/
 ├── newsletter-automation-last-run.json  # Tracking file (dashboard visible)
 ├── 2025-09-19/
 │   ├── article-title.source-name.md     # Main content
@@ -47,13 +55,8 @@ n8n-ai-news-stories/
 ### Basic Test
 Use manual trigger to process files from today only.
 
-### Date Override Test
-Pass `override_date` parameter to manual trigger:
-```json
-{
-  "override_date": "2025-09-15"
-}
-```
+### Date Override Test (Optional)
+The workflows automatically detect the latest files. For testing specific dates, you can manually modify the workflow's internal date parameters if needed during development.
 
 ### Reset Tracking
 Delete `newsletter-automation-last-run.json` from R2 to reset processing history.
@@ -142,9 +145,9 @@ Last test run processed 4 files from multiple dates:
 
 #### **Enhanced Notifications**
 - **Previous**: Slack notifications with block formatting
-- **Current**: Gmail notifications to justin@herenowai.com
+- **Current**: Gmail notifications to configured email address
 - **Format**: Rich HTML with CSS styling and prominent date mismatch alerts
-- **Credentials**: Gmail OAuth2 (id: "DbgMOOrFimJRx5qQ")
+- **Credentials**: Gmail OAuth2 (configure your own Gmail credentials in n8n)
 
 #### **S3 Configuration Fixes**
 - **Corrected Operation**: "getAll" with Return All enabled
