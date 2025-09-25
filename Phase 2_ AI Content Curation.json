@@ -1,0 +1,359 @@
+{
+  "name": "Phase 2: AI Content Curation",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "getAll",
+        "bucketName": "n8n-ai-news-stories",
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "8929e18d-e134-42ea-b56f-e9b61d24a968",
+      "name": "List Newsletter Files",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        -1936,
+        -480
+      ],
+      "credentials": {
+        "s3": {
+          "id": "WRnQEZaYQvFm8YY3",
+          "name": "Cloudflare R2 S3 Format Datalake"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Find the latest newsletter-combined file from S3 listing with date mismatch detection\n// n8n S3 node returns each file as a separate item, not an array\nconst allInputs = $input.all();\n\n// Get today's date in YYYY-MM-DD format\nconst today = new Date().toISOString().split('T')[0];\n\n// Debug: log the actual input structure\nconsole.log('Number of input items:', allInputs.length);\nconsole.log('First item:', JSON.stringify(allInputs[0]?.json, null, 2));\nconsole.log('Today\\'s date:', today);\n\n// Filter for newsletter-combined files and extract dates\nconst newsletterFiles = [];\n\n// Process each input item (each represents one file from S3)\nfor (const inputItem of allInputs) {\n  const file = inputItem.json;\n  const fileName = file.Key || file.key || file.name || file.fileName;\n  \n  if (fileName && fileName.startsWith('newsletter-combined-') && fileName.endsWith('.md')) {\n    // Extract date from filename: newsletter-combined-YYYY-MM-DD.md\n    const dateMatch = fileName.match(/newsletter-combined-(\\d{4}-\\d{2}-\\d{2})\\.md$/);\n    if (dateMatch) {\n      newsletterFiles.push({\n        fileName: fileName,\n        date: dateMatch[1],\n        lastModified: file.LastModified || file.lastModified || new Date().toISOString()\n      });\n    }\n  }\n}\n\nif (newsletterFiles.length === 0) {\n  const allFileNames = allInputs.map(item => {\n    const file = item.json;\n    return file.Key || file.key || file.name || file.fileName || 'unknown';\n  });\n  throw new Error(`No newsletter-combined files found in R2 bucket. Found ${allInputs.length} total files: ${allFileNames.join(', ')}`);\n}\n\n// Sort by date (most recent first)\nnewsletterFiles.sort((a, b) => new Date(b.date) - new Date(a.date));\n\nconst latestFile = newsletterFiles[0];\n\n// Check for date mismatch\nconst dateMismatch = latestFile.date !== today;\nlet mismatchWarning = null;\nlet mismatchSeverity = 'none';\n\nif (dateMismatch) {\n  const latestDate = new Date(latestFile.date);\n  const todayDate = new Date(today);\n  const daysDiff = Math.round((todayDate - latestDate) / (1000 * 60 * 60 * 24));\n  \n  if (daysDiff === 1) {\n    mismatchSeverity = 'minor';\n    mismatchWarning = `Processing yesterday's newsletter (${latestFile.date}) instead of today's (${today}). This might be expected if today's newsletter hasn't been generated yet.`;\n  } else if (daysDiff > 1) {\n    mismatchSeverity = 'major';\n    mismatchWarning = `WARNING: Processing ${daysDiff}-day-old newsletter (${latestFile.date}) instead of today's (${today}). Today's newsletter may be missing from R2 bucket.`;\n  } else {\n    mismatchSeverity = 'future';\n    mismatchWarning = `NOTICE: Processing future-dated newsletter (${latestFile.date}) vs today (${today}). This is unusual but may be intentional.`;\n  }\n}\n\nreturn [{\n  json: {\n    latest_file_key: latestFile.fileName,\n    latest_date: latestFile.date,\n    latest_modified: latestFile.lastModified,\n    total_newsletter_files_found: newsletterFiles.length,\n    all_files: newsletterFiles.map(f => ({ fileName: f.fileName, date: f.date })),\n    // Date mismatch detection\n    workflow_run_date: today,\n    date_mismatch: dateMismatch,\n    mismatch_severity: mismatchSeverity,\n    mismatch_warning: mismatchWarning,\n    debug_info: {\n      total_files_in_bucket: allInputs.length,\n      all_file_keys: allInputs.map(item => {\n        const file = item.json;\n        return file.Key || file.key || file.name || file.fileName;\n      })\n    }\n  }\n}];"
+      },
+      "id": "8d410386-5fe4-4e33-b2d0-202b7531993a",
+      "name": "Find Latest Newsletter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1728,
+        -480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Configuration and initialization - DYNAMIC DATE DETECTION\n// This will be populated by the previous \"Find Latest Newsletter\" node\nconst latestFileInfo = $input.first().json;\nconst processingDate = latestFileInfo.latest_date;\nconst combinedMarkdownKey = latestFileInfo.latest_file_key;\n\n// Newsletter context for AI agents\nconst newsletterContext = {\n  target_date: processingDate,\n  audience_profile: {\n    primary_segments: ['ai_professionals', 'tech_entrepreneurs', 'developers'],\n    interests: ['ai_breakthroughs', 'practical_applications', 'industry_news', 'research_insights'],\n    preferred_tone: 'professional_but_accessible',\n    max_articles_per_newsletter: 4\n  },\n  editorial_guidelines: {\n    min_quality_score: 7.0,\n    max_duplicate_similarity: 0.85,\n    required_diversity: ['topic', 'source', 'perspective'],\n    preferred_mix: {\n      breaking_news: 0.25,\n      analysis: 0.5,\n      research: 0.25\n    }\n  }\n};\n\nreturn [{\n  json: {\n    combined_markdown_key: combinedMarkdownKey,\n    processing_date: processingDate,\n    newsletter_context: newsletterContext\n  }\n}];"
+      },
+      "id": "50d4e993-1163-4149-b77d-472624004afd",
+      "name": "Initialize AI Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1536,
+        -480
+      ]
+    },
+    {
+      "parameters": {
+        "bucketName": "n8n-ai-news-stories",
+        "fileKey": "={{ $json.combined_markdown_key }}"
+      },
+      "id": "6cdc6118-bcf9-494c-a962-584ac437bb6d",
+      "name": "Fetch Combined Newsletter",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        -1280,
+        -480
+      ],
+      "credentials": {
+        "s3": {
+          "id": "WRnQEZaYQvFm8YY3",
+          "name": "Cloudflare R2 S3 Format Datalake"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse combined markdown into individual articles\nconst context = $('Initialize AI Context').first().json;\nlet markdownContent = '';\n\n// Extract markdown content from S3 response\nif ($input.first().binary && $input.first().binary.data) {\n  try {\n    let binaryContent;\n    if (typeof $input.first().binary.data === 'string') {\n      binaryContent = JSON.parse($input.first().binary.data);\n    } else {\n      binaryContent = $input.first().binary.data;\n    }\n    \n    if (binaryContent && binaryContent.data) {\n      markdownContent = Buffer.from(binaryContent.data, 'base64').toString('utf8');\n    }\n  } catch (error) {\n    markdownContent = $input.first().binary.data.toString('utf8');\n  }\n}\n\n// Parse markdown into individual articles\nconst articles = [];\nconst lines = markdownContent.split('\\n');\nlet currentArticle = null;\nlet currentContent = [];\n\nfor (const line of lines) {\n  // Detect article headers: ### Article Title (Source Name)\n  const articleMatch = line.match(/^### (.+) \\((.+)\\)$/);\n  if (articleMatch) {\n    // Save previous article if exists\n    if (currentArticle) {\n      currentArticle.content = currentContent.join('\\n').trim();\n      currentArticle.word_count = currentArticle.content.split(/\\s+/).filter(w => w.length > 0).length;\n      articles.push(currentArticle);\n    }\n    \n    // Start new article\n    currentArticle = {\n      article_id: `article_${context.processing_date}_${articles.length + 1}`,\n      title: articleMatch[1].trim(),\n      source: articleMatch[2].trim().toLowerCase().replace(/\\s+/g, '-'),\n      date: context.processing_date,\n      content: '',\n      word_count: 0\n    };\n    currentContent = [];\n  } else if (line === '---') {\n    // Article separator - ignore\n    continue;\n  } else if (line.match(/^## \\d{4}-\\d{2}-\\d{2}$/)) {\n    // Date header - extract date for subsequent articles\n    const dateMatch = line.match(/^## (\\d{4}-\\d{2}-\\d{2})$/);\n    if (dateMatch && currentArticle) {\n      currentArticle.date = dateMatch[1];\n    }\n  } else if (currentArticle && line.trim()) {\n    // Article content line\n    currentContent.push(line);\n  }\n}\n\n// Don't forget the last article\nif (currentArticle) {\n  currentArticle.content = currentContent.join('\\n').trim();\n  currentArticle.word_count = currentArticle.content.split(/\\s+/).filter(w => w.length > 0).length;\n  articles.push(currentArticle);\n}\n\n// Return context with parsed articles\nreturn [{\n  json: {\n    ...context,\n    articles: articles,\n    total_articles: articles.length,\n    processing_stage: 'articles_parsed'\n  }\n}];"
+      },
+      "id": "5e766b42-6dc9-4573-952d-b38cf0306b06",
+      "name": "Parse Individual Articles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1936,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simple deduplication logic without AI tools\nconst context = $input.first().json;\nconst articles = context.articles || [];\n\n// Simple deduplication based on title similarity and same date\nfunction calculateTitleSimilarity(title1, title2) {\n  const words1 = title1.toLowerCase().split(/\\s+/).filter(w => w.length > 3);\n  const words2 = title2.toLowerCase().split(/\\s+/).filter(w => w.length > 3);\n  \n  const intersection = words1.filter(w => words2.includes(w)).length;\n  const union = new Set([...words1, ...words2]).size;\n  \n  return union > 0 ? intersection / union : 0;\n}\n\n// Analyze articles for duplicates\nconst deduplicated = [];\nconst removed = [];\nconst processed = new Set();\n\nfor (let i = 0; i < articles.length; i++) {\n  if (processed.has(i)) continue;\n  \n  const article1 = articles[i];\n  let isDuplicate = false;\n  let duplicateOf = null;\n  \n  // Check against all other articles\n  for (let j = i + 1; j < articles.length; j++) {\n    if (processed.has(j)) continue;\n    \n    const article2 = articles[j];\n    const titleSim = calculateTitleSimilarity(article1.title, article2.title);\n    const sameDate = article1.date === article2.date;\n    \n    // Simple duplicate detection: high title similarity + same date\n    if (titleSim > 0.7 && sameDate) {\n      // Keep the one with more content\n      if (article2.word_count > article1.word_count) {\n        removed.push({\n          article_id: article1.article_id,\n          removal_reason: `Duplicate of ${article2.article_id} (title similarity: ${titleSim.toFixed(2)})`,\n          duplicate_of: article2.article_id\n        });\n        isDuplicate = true;\n        duplicateOf = article2.article_id;\n        processed.add(i);\n        break;\n      } else {\n        removed.push({\n          article_id: article2.article_id,\n          removal_reason: `Duplicate of ${article1.article_id} (title similarity: ${titleSim.toFixed(2)})`,\n          duplicate_of: article1.article_id\n        });\n        processed.add(j);\n      }\n    }\n  }\n  \n  if (!isDuplicate) {\n    // Add authority score based on source\n    const authorityScores = {\n      'techcrunch': 9,\n      'the-verge': 8,\n      'wired': 8,\n      'ars-technica': 8,\n      'reuters': 9,\n      'bloomberg': 9,\n      'futurepedia': 6,\n      'superhuman': 6,\n      'taaft': 6,\n      'the-neuron': 6\n    };\n    \n    deduplicated.push({\n      ...article1,\n      deduplication_status: 'kept_primary',\n      reasoning: 'No duplicates found with sufficient similarity',\n      similar_to: [],\n      authority_score: authorityScores[article1.source] || 5,\n      tool_analysis: {\n        temporal_relationship: 'separate_events',\n        semantic_similarity: 0,\n        confidence: 'simple_algorithm'\n      }\n    });\n  }\n}\n\nconst result = {\n  deduplicated_articles: deduplicated,\n  removed_articles: removed,\n  agent_reasoning: [\n    `Processed ${articles.length} articles using simple title similarity algorithm`,\n    `Removed ${removed.length} duplicates with >70% title similarity on same date`,\n    `Kept ${deduplicated.length} unique articles for further processing`\n  ]\n};\n\nreturn [{\n  json: result\n}];"
+      },
+      "id": "33a6cb6a-014f-43ab-902c-9766ac3608e6",
+      "name": "Simple Deduplication",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1728,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simple quality evaluation without AI tools\nconst dedupResult = $input.first().json;\nconst articles = dedupResult.deduplicated_articles || [];\n\n// Simple quality scoring\nfunction evaluateArticle(article) {\n  let qualityScore = 5; // Base score\n  let relevanceScore = 5;\n  let factualScore = 7; // Assume good unless proven otherwise\n  \n  // Content length scoring\n  if (article.word_count > 500) qualityScore += 2;\n  else if (article.word_count > 200) qualityScore += 1;\n  else if (article.word_count < 50) qualityScore -= 2;\n  \n  // Source authority\n  const sourceBonus = article.authority_score > 7 ? 2 : article.authority_score > 5 ? 1 : 0;\n  qualityScore += sourceBonus;\n  \n  // AI/Tech relevance keywords\n  const content = (article.title + ' ' + article.content).toLowerCase();\n  const aiKeywords = ['ai', 'artificial intelligence', 'machine learning', 'gpt', 'claude', 'openai', 'anthropic', 'model', 'neural', 'automation'];\n  const techKeywords = ['tech', 'technology', 'innovation', 'startup', 'funding', 'breakthrough', 'research', 'development'];\n  \n  const aiMatches = aiKeywords.filter(kw => content.includes(kw)).length;\n  const techMatches = techKeywords.filter(kw => content.includes(kw)).length;\n  \n  if (aiMatches > 2) relevanceScore += 3;\n  else if (aiMatches > 0) relevanceScore += 2;\n  else if (techMatches > 1) relevanceScore += 1;\n  \n  // Composite score\n  const compositeScore = (qualityScore * 0.4 + relevanceScore * 0.4 + factualScore * 0.2);\n  \n  // Topic classification\n  let primaryTopic = 'general_tech';\n  if (aiMatches > 0) primaryTopic = 'artificial_intelligence';\n  else if (content.includes('funding') || content.includes('investment')) primaryTopic = 'funding';\n  else if (content.includes('research') || content.includes('study')) primaryTopic = 'research';\n  \n  return {\n    ...article,\n    quality_score: Math.min(10, Math.max(1, qualityScore)),\n    relevance_score: Math.min(10, Math.max(1, relevanceScore)),\n    factual_score: factualScore,\n    composite_score: Math.min(10, Math.max(1, compositeScore)),\n    primary_topic: primaryTopic,\n    recommendation: compositeScore >= 7 ? 'include' : 'exclude',\n    reasoning: `Quality: ${qualityScore.toFixed(1)}, Relevance: ${relevanceScore.toFixed(1)}, Authority: ${article.authority_score}`,\n    audience_segments: aiMatches > 0 ? ['ai_professionals', 'developers'] : ['tech_entrepreneurs'],\n    impact_factors: aiMatches > 2 ? ['ai_advancement', 'industry_impact'] : ['general_interest']\n  };\n}\n\nconst evaluatedArticles = articles.map(evaluateArticle);\nconst aboveThreshold = evaluatedArticles.filter(a => a.composite_score >= 7).length;\nconst belowThreshold = evaluatedArticles.filter(a => a.composite_score < 7).length;\nconst averageScore = evaluatedArticles.reduce((sum, a) => sum + a.composite_score, 0) / evaluatedArticles.length;\n\nconst result = {\n  evaluated_articles: evaluatedArticles,\n  quality_statistics: {\n    above_threshold: aboveThreshold,\n    below_threshold: belowThreshold,\n    average_score: averageScore\n  },\n  agent_reasoning: [\n    `Evaluated ${evaluatedArticles.length} articles using simple scoring algorithm`,\n    `${aboveThreshold} articles meet quality threshold (7.0+)`,\n    `Average quality score: ${averageScore.toFixed(1)}`\n  ]\n};\n\nreturn [{\n  json: result\n}];"
+      },
+      "id": "01cbd8e1-f398-4a4e-99fe-bdf7aab2427d",
+      "name": "Simple Quality Evaluation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1520,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Simple curation without AI tools\nconst qualityResult = $input.first().json;\nconst articles = qualityResult.evaluated_articles.filter(a => a.recommendation === 'include') || [];\n\n// Sort by composite score and select top 4\nconst sortedArticles = articles.sort((a, b) => b.composite_score - a.composite_score);\nconst maxArticles = 4;\nconst selected = sortedArticles.slice(0, maxArticles);\nconst rejected = sortedArticles.slice(maxArticles);\n\n// Create curated selection\nconst curatedArticles = selected.map((article, index) => ({\n  article_id: article.article_id,\n  selection_rank: index + 1,\n  curation_score: article.composite_score,\n  selection_reasoning: `Ranked #${index + 1} with composite score ${article.composite_score.toFixed(1)}. ${article.reasoning}`,\n  impact_assessment: {\n    significance: article.composite_score > 8.5 ? 'high' : article.composite_score > 7.5 ? 'medium' : 'low',\n    factors: article.impact_factors\n  }\n}));\n\nconst rejectedArticles = rejected.map(article => ({\n  article_id: article.article_id,\n  rejection_reason: `Lower priority: composite score ${article.composite_score.toFixed(1)} (rank ${selected.length + rejected.indexOf(article) + 1})`\n}));\n\n// Portfolio analysis\nconst topicCounts = {};\nconst sourceCounts = {};\n\nselected.forEach(article => {\n  topicCounts[article.primary_topic] = (topicCounts[article.primary_topic] || 0) + 1;\n  sourceCounts[article.source] = (sourceCounts[article.source] || 0) + 1;\n});\n\nconst diversityScore = Object.keys(sourceCounts).length * 2.5; // Max 10 for 4 different sources\n\nconst result = {\n  curated_articles: curatedArticles,\n  rejected_articles: rejectedArticles,\n  portfolio_analysis: {\n    diversity_score: Math.min(10, diversityScore),\n    topic_balance: topicCounts,\n    source_distribution: sourceCounts,\n    narrative_flow: 'Selected top-scoring articles with quality and relevance prioritization'\n  },\n  agent_reasoning: [\n    `Selected top ${selected.length} articles from ${articles.length} quality candidates`,\n    `Portfolio diversity score: ${diversityScore.toFixed(1)}/10`,\n    `Topic distribution: ${Object.keys(topicCounts).join(', ')}`\n  ]\n};\n\nreturn [{\n  json: result\n}];"
+      },
+      "id": "a9ca9c16-6a25-4e03-8e0c-e9d2a290c9ff",
+      "name": "Simple Story Curation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1248,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine all agent outputs into final curation results\nconst latestFileInfo = $('Find Latest Newsletter').first().json;\nconst initialContext = $('Initialize AI Context').first().json;\nconst parsedData = $('Parse Individual Articles').first().json;\nconst deduplicationResult = $('Simple Deduplication').first().json;\nconst evaluationResult = $('Simple Quality Evaluation').first().json;\nconst curationResult = $('Simple Story Curation').first().json;\n\n// Merge article data with agent analysis\nconst finalArticles = curationResult.curated_articles.map(curatedArticle => {\n  // Find original article data\n  const originalArticle = parsedData.articles.find(a => a.article_id === curatedArticle.article_id);\n  \n  // Find deduplication analysis\n  const dedupAnalysis = deduplicationResult.deduplicated_articles.find(a => a.article_id === curatedArticle.article_id);\n  \n  // Find evaluation analysis\n  const evalAnalysis = evaluationResult.evaluated_articles.find(a => a.article_id === curatedArticle.article_id);\n  \n  return {\n    ...originalArticle,\n    agent_metadata: {\n      deduplication: {\n        status: dedupAnalysis?.deduplication_status || 'unknown',\n        reasoning: dedupAnalysis?.reasoning || 'No deduplication analysis',\n        authority_score: dedupAnalysis?.authority_score || 0\n      },\n      quality_evaluation: {\n        composite_score: evalAnalysis?.composite_score || 0,\n        quality_score: evalAnalysis?.quality_score || 0,\n        relevance_score: evalAnalysis?.relevance_score || 0,\n        primary_topic: evalAnalysis?.primary_topic || 'unknown',\n        recommendation: evalAnalysis?.recommendation || 'unknown',\n        reasoning: evalAnalysis?.reasoning || 'No evaluation analysis'\n      },\n      curation_decision: {\n        selection_rank: curatedArticle.selection_rank,\n        curation_score: curatedArticle.curation_score,\n        reasoning: curatedArticle.selection_reasoning,\n        impact_assessment: curatedArticle.impact_assessment\n      }\n    }\n  };\n});\n\n// Create comprehensive results\nconst finalResults = {\n  processing_metadata: {\n    processing_date: initialContext.processing_date,\n    workflow_version: '2.1_simple_algorithms_with_date_validation',\n    total_articles_processed: parsedData.total_articles,\n    agents_used: ['simple_deduplication', 'simple_quality_evaluation', 'simple_story_curation'],\n    // Date validation information\n    workflow_run_date: latestFileInfo.workflow_run_date,\n    date_mismatch: latestFileInfo.date_mismatch,\n    mismatch_severity: latestFileInfo.mismatch_severity,\n    mismatch_warning: latestFileInfo.mismatch_warning,\n    processed_file: latestFileInfo.latest_file_key\n  },\n  selected_articles: finalArticles,\n  curation_analysis: {\n    portfolio_analysis: curationResult.portfolio_analysis,\n    quality_statistics: evaluationResult.quality_statistics\n  },\n  agent_processing_log: {\n    deduplication_agent: {\n      removed_count: deduplicationResult.removed_articles?.length || 0,\n      reasoning: deduplicationResult.agent_reasoning || []\n    },\n    content_evaluator_agent: {\n      statistics: evaluationResult.quality_statistics,\n      reasoning: evaluationResult.agent_reasoning || []\n    },\n    story_curator_agent: {\n      final_selections: curationResult.curated_articles?.length || 0,\n      reasoning: curationResult.agent_reasoning || []\n    }\n  }\n};\n\nreturn [{ json: finalResults }];"
+      },
+      "id": "0746d06c-df90-4cc3-9e63-366dc4634fcb",
+      "name": "Combine Agent Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1936,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format results for human review via Gmail with date mismatch alerts\nconst results = $input.first().json;\nconst selectedArticles = results.selected_articles || [];\nconst processingLog = results.agent_processing_log || {};\nconst metadata = results.processing_metadata || {};\n\n// Create HTML email content\nlet emailSubject = \"🤖 AI Newsletter Curation Complete (Simple Algorithm v2.1)\";\nlet htmlContent = `\n<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"utf-8\">\n    <style>\n        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }\n        .container { max-width: 800px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }\n        .header { text-align: center; color: #333; border-bottom: 2px solid #e0e0e0; padding-bottom: 15px; margin-bottom: 20px; }\n        .warning { background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px; padding: 15px; margin: 15px 0; }\n        .warning.major { background-color: #f8d7da; border-color: #f5c6cb; }\n        .warning.future { background-color: #d1ecf1; border-color: #bee5eb; }\n        .section { margin: 20px 0; }\n        .summary { background-color: #f8f9fa; padding: 15px; border-radius: 5px; }\n        .article { background-color: #fff; border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin: 10px 0; }\n        .article-title { font-weight: bold; color: #007bff; margin-bottom: 8px; }\n        .article-details { color: #666; font-size: 14px; margin-bottom: 8px; }\n        .article-reasoning { font-style: italic; color: #555; }\n        .divider { border-top: 1px solid #e0e0e0; margin: 20px 0; }\n        .footer { text-align: center; color: #666; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; }\n        ul { padding-left: 20px; }\n        li { margin: 5px 0; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>🤖 AI Newsletter Curation Complete</h1>\n            <p>Simple Algorithm v2.1 with Date Validation</p>\n        </div>`;\n\n// Add date mismatch warning if present\nif (metadata.date_mismatch) {\n  let warningEmoji = \"⚠️\";\n  let warningClass = \"warning\";\n  \n  if (metadata.mismatch_severity === 'major') {\n    warningEmoji = \"🚨\";\n    warningClass = \"warning major\";\n    emailSubject = \"🚨 DATE MISMATCH - \" + emailSubject;\n  } else if (metadata.mismatch_severity === 'future') {\n    warningEmoji = \"🔮\";\n    warningClass = \"warning future\";\n  } else {\n    emailSubject = \"⚠️ DATE MISMATCH - \" + emailSubject;\n  }\n  \n  htmlContent += `\n        <div class=\"${warningClass}\">\n            <h3>${warningEmoji} DATE MISMATCH DETECTED</h3>\n            <p><strong>${metadata.mismatch_warning}</strong></p>\n            <ul>\n                <li><strong>Workflow Run Date:</strong> ${metadata.workflow_run_date}</li>\n                <li><strong>Processed Newsletter Date:</strong> ${metadata.processing_date}</li>\n                <li><strong>File:</strong> <code>${metadata.processed_file}</code></li>\n            </ul>\n        </div>`;\n}\n\n// Add processing summary\nhtmlContent += `\n        <div class=\"section\">\n            <div class=\"summary\">\n                <h3>📊 Processing Summary</h3>\n                <ul>\n                    <li><strong>Articles Processed:</strong> ${metadata.total_articles_processed}</li>\n                    <li><strong>Duplicates Removed:</strong> ${processingLog.deduplication_agent?.removed_count || 0}</li>\n                    <li><strong>Quality Approved:</strong> ${results.curation_analysis?.quality_statistics?.above_threshold || 0}</li>\n                    <li><strong>Final Selection:</strong> ${selectedArticles.length}</li>\n                    <li><strong>Portfolio Diversity:</strong> ${results.curation_analysis?.portfolio_analysis?.diversity_score?.toFixed(1) || 'N/A'}/10</li>\n                </ul>\n            </div>\n        </div>\n        \n        <div class=\"divider\"></div>\n        \n        <div class=\"section\">\n            <h3>🎯 Selected Articles (${selectedArticles.length})</h3>`;\n\n// Add each selected article\nselectedArticles.forEach((article, index) => {\n  const articleMeta = article.agent_metadata || {};\n  const quality = articleMeta.quality_evaluation || {};\n  const curation = articleMeta.curation_decision || {};\n  \n  htmlContent += `\n            <div class=\"article\">\n                <div class=\"article-title\">${curation.selection_rank || index + 1}. ${article.title}</div>\n                <div class=\"article-details\">\n                    <strong>Source:</strong> ${article.source} | \n                    <strong>Topic:</strong> ${quality.primary_topic || 'Unknown'} | \n                    <strong>Quality Score:</strong> ${quality.composite_score?.toFixed(1) || 'N/A'} | \n                    <strong>Curation Score:</strong> ${curation.curation_score?.toFixed(1) || 'N/A'}\n                </div>\n                <div class=\"article-details\">\n                    <strong>Impact:</strong> ${curation.impact_assessment?.significance || 'Standard'} - ${curation.impact_assessment?.factors?.join(', ') || 'N/A'}\n                </div>\n                <div class=\"article-reasoning\">${curation.reasoning || 'No reasoning provided'}</div>\n            </div>`;\n});\n\n// Add algorithm summary\nhtmlContent += `\n        </div>\n        \n        <div class=\"divider\"></div>\n        \n        <div class=\"section\">\n            <h3>🤖 Simple Algorithm Summary</h3>\n            <ul>\n                <li><strong>Deduplication:</strong> ${processingLog.deduplication_agent?.reasoning?.slice(0, 1).join('') || 'No duplicates detected'}</li>\n                <li><strong>Quality Filter:</strong> ${processingLog.content_evaluator_agent?.reasoning?.slice(0, 1).join('') || 'Quality evaluation complete'}</li>\n                <li><strong>Curation:</strong> ${processingLog.story_curator_agent?.reasoning?.slice(0, 1).join('') || 'Strategic selection complete'}</li>\n            </ul>\n        </div>\n        \n        <div class=\"footer\">\n            <p>Generated by n8n Newsletter Automation System</p>\n            <p>Next Steps: Review algorithm selections and approve for newsletter generation.</p>\n        </div>\n    </div>\n</body>\n</html>`;\n\nreturn [{\n  json: {\n    email_subject: emailSubject,\n    email_html: htmlContent,\n    email_text: `AI Newsletter Curation Complete\\n\\nProcessing Summary:\\n- Articles Processed: ${metadata.total_articles_processed}\\n- Final Selection: ${selectedArticles.length}\\n- Portfolio Diversity: ${results.curation_analysis?.portfolio_analysis?.diversity_score?.toFixed(1) || 'N/A'}/10\\n\\nSelected Articles: ${selectedArticles.map((a, i) => `${i+1}. ${a.title}`).join('\\n')}`,\n    curation_results: results\n  }\n}];"
+      },
+      "id": "a157495f-af07-4722-9e87-a9d9d98f705c",
+      "name": "Format Human Review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1712,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "justin@herenowai.com",
+        "subject": "={{ $json.email_subject }}",
+        "message": "={{ $json.email_html }}",
+        "options": {}
+      },
+      "id": "6e5044ad-33bd-476d-afe5-a8b8c6676b80",
+      "name": "Send Gmail Notification",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -1216,
+        -32
+      ],
+      "webhookId": "8ec35d15-d6df-43e4-a10d-ae54271ea9cf",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "DbgMOOrFimJRx5qQ",
+          "name": "Gmail"
+        }
+      },
+      "notes": "CONFIGURE: Set up Gmail OAuth2 credentials in n8n"
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "n8n-ai-news-stories",
+        "fileName": "={{ 'curated-stories-' + $json.curation_results.processing_metadata.processing_date + '.json' }}",
+        "binaryData": false,
+        "fileContent": "={{ JSON.stringify($json.curation_results, null, 2) }}",
+        "additionalFields": {}
+      },
+      "id": "1cc5023b-f2f7-4722-a007-a86ee81dcbd8",
+      "name": "Save Curation Results",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        -1216,
+        160
+      ],
+      "credentials": {
+        "s3": {
+          "id": "WRnQEZaYQvFm8YY3",
+          "name": "Cloudflare R2 S3 Format Datalake"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6,
+              "triggerAtMinute": 45
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2160,
+        -480
+      ],
+      "id": "1d3271ad-fea2-403c-80da-7c6085ce0abf",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "List Newsletter Files": {
+      "main": [
+        [
+          {
+            "node": "Find Latest Newsletter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Latest Newsletter": {
+      "main": [
+        [
+          {
+            "node": "Initialize AI Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize AI Context": {
+      "main": [
+        [
+          {
+            "node": "Fetch Combined Newsletter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Combined Newsletter": {
+      "main": [
+        [
+          {
+            "node": "Parse Individual Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Individual Articles": {
+      "main": [
+        [
+          {
+            "node": "Simple Deduplication",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Deduplication": {
+      "main": [
+        [
+          {
+            "node": "Simple Quality Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Quality Evaluation": {
+      "main": [
+        [
+          {
+            "node": "Simple Story Curation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Story Curation": {
+      "main": [
+        [
+          {
+            "node": "Combine Agent Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Agent Results": {
+      "main": [
+        [
+          {
+            "node": "Format Human Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Human Review": {
+      "main": [
+        [
+          {
+            "node": "Send Gmail Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Curation Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "List Newsletter Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "97ed338c-d33e-4d73-ba11-f920fd82acf9",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d735d77f21fd4aef6b73e3673b1ecc97bb1c1f558cf83cdb9413cefd83cbd75c"
+  },
+  "id": "sFMjbzQajIzJtVnv",
+  "tags": []
+}

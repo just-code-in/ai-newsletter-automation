@@ -1,0 +1,427 @@
+{
+  "name": "Phase 1B: RSS Download and Consolidation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6,
+              "triggerAtMinute": 45
+            }
+          ]
+        }
+      },
+      "id": "0ddad229-c12b-41f0-aa75-2d598e59de4e",
+      "name": "Weekly Newsletter Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -2864,
+        16
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "84c80b34-015f-45cd-9c6e-ba7cd0dc4efb",
+      "name": "Manual Trigger (Testing/Override)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2864,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check for manual override date parameter\nconst manualDate = $input.all()[0]?.json?.override_date;\nconst today = new Date().toISOString().split('T')[0];\n\nreturn [{\n  json: {\n    current_date: today,\n    override_date: manualDate || null,\n    tracking_file_key: 'newsletter-automation-last-run.json'\n  }\n}];"
+      },
+      "id": "3126bd99-1965-48b9-9fd4-df884716b4f6",
+      "name": "Initialize Date Processing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2416,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "bucketName": "n8n-ai-news-stories",
+        "fileKey": "={{ $json.tracking_file_key }}"
+      },
+      "id": "960ab9f3-bc6a-4863-946e-5bbd81d10b79",
+      "name": "Fetch Last Run Tracking",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        -2208,
+        112
+      ],
+      "credentials": {
+        "s3": {
+          "id": "WRnQEZaYQvFm8YY3",
+          "name": "Cloudflare R2 S3 Format Datalake"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse tracking file or create default\nlet trackingData;\ntry {\n  trackingData = JSON.parse($input.first().binary.data.toString());\n} catch (error) {\n  // First run - create default tracking\n  trackingData = {\n    last_successful_run: null,\n    last_processed_date: null,\n    files_processed: 0,\n    workflow_version: \"1.0\"\n  };\n}\n\nconst currentDate = $('Initialize Date Processing').first().json.current_date;\nconst overrideDate = $('Initialize Date Processing').first().json.override_date;\n\n// Calculate start date\nlet startDate;\nif (overrideDate) {\n  startDate = overrideDate;\n} else if (trackingData.last_processed_date) {\n  // Start from day after last processed\n  const lastDate = new Date(trackingData.last_processed_date);\n  lastDate.setDate(lastDate.getDate() + 1);\n  startDate = lastDate.toISOString().split('T')[0];\n} else {\n  // First run - start from today\n  startDate = currentDate;\n}\n\n// Generate date prefixes to scan\nconst datePrefixes = [];\nconst start = new Date(startDate);\nconst end = new Date(currentDate);\n\nfor (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {\n  datePrefixes.push(d.toISOString().split('T')[0]);\n}\n\nreturn [{\n  json: {\n    tracking_data: trackingData,\n    current_date: currentDate,\n    start_date: startDate,\n    date_prefixes: datePrefixes,\n    dates_to_process: datePrefixes.length\n  }\n}];"
+      },
+      "id": "228186a6-3f67-42ef-9a8d-70fb5e1e9867",
+      "name": "Calculate Date Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1984,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "date_prefixes",
+        "options": {}
+      },
+      "id": "a416e258-47e3-4930-a1d2-f32ab176d7f5",
+      "name": "Split Date Prefixes",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 3,
+      "position": [
+        -1760,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "bucket",
+        "operation": "search",
+        "bucketName": "n8n-ai-news-stories",
+        "additionalFields": {}
+      },
+      "id": "3b60499e-f84c-47a5-b8e8-f0109e6558e9",
+      "name": "List Files by Date",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        -1536,
+        112
+      ],
+      "credentials": {
+        "s3": {
+          "id": "WRnQEZaYQvFm8YY3",
+          "name": "Cloudflare R2 S3 Format Datalake"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter for .md files and extract metadata from bucket search results\nconst items = $input.all();\nconst mdFiles = [];\n\nfor (const item of items) {\n  // Handle different possible data structures from bucket search\n  let files = [];\n  \n  // Check various possible response formats\n  if (item.json.Contents) {\n    files = item.json.Contents;\n  } else if (item.json.objects) {\n    files = item.json.objects;\n  } else if (item.json.files) {\n    files = item.json.files;\n  } else if (Array.isArray(item.json)) {\n    files = item.json;\n  } else if (item.json.Key) {\n    // Single file object\n    files = [item.json];\n  }\n  \n  for (const file of files) {\n    // Get the key/name from various possible fields\n    const key = file.Key || file.key || file.name || file.Key;\n    \n    if (key && key.endsWith('.md')) {\n      // Parse key format: YYYY-MM-DD/title.source.md\n      const parts = key.split('/');\n      if (parts.length === 2) {\n        const date = parts[0];\n        const filename = parts[1];\n        const nameParts = filename.replace('.md', '').split('.');\n        \n        if (nameParts.length >= 2) {\n          const source = nameParts[nameParts.length - 1];\n          const titleSlug = nameParts.slice(0, -1).join('.');\n          \n          mdFiles.push({\n            key: key,\n            date: date,\n            title_slug: titleSlug,\n            source: source,\n            size: file.Size || file.size || 0,\n            last_modified: file.LastModified || file.lastModified || new Date().toISOString()\n          });\n        }\n      }\n    }\n  }\n}\n\n// Sort by date and source for consistent processing\nmdFiles.sort((a, b) => {\n  if (a.date !== b.date) return a.date.localeCompare(b.date);\n  return a.source.localeCompare(b.source);\n});\n\nreturn mdFiles.map(file => ({ json: file }));"
+      },
+      "id": "316c65b0-0710-484e-8f0a-09e12b18b615",
+      "name": "Filter & Parse Markdown Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1328,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "bucketName": "n8n-ai-news-stories",
+        "fileKey": "={{ $json.key }}"
+      },
+      "id": "27347230-ceed-4295-bd78-3ae970a6873e",
+      "name": "Download Markdown Content",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        -1104,
+        112
+      ],
+      "credentials": {
+        "s3": {
+          "id": "WRnQEZaYQvFm8YY3",
+          "name": "Cloudflare R2 S3 Format Datalake"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract markdown content, apply content cleaning, and combine with metadata\nconst items = $input.all();\nconst results = [];\n\n// STAGE 1 CONTENT CLEANING FUNCTIONS\n\n// 1. Remove advertisements and endorsements\nfunction removeAdvertisements(content) {\n  return content\n    // Remove \"PRESENTED BY\" sections (case insensitive)\n    .replace(/#{1,6}\\s*\\**PRESENTED BY.*?\\**/gim, '')\n    .replace(/\\*\\*PRESENTED BY.*?\\*\\*/gi, '')\n    // Remove sponsorship acknowledgments\n    .replace(/sponsored by.*?(?=\\n|$)/gi, '')\n    .replace(/in partnership with.*?(?=\\n|$)/gi, '')\n    // Remove subscription/promotion sections\n    .replace(/\\[.*?browse.*?tools.*?\\]/gi, '')\n    .replace(/\\[.*?browse.*?courses.*?\\]/gi, '')\n    .replace(/\\[.*?advertise.*?\\]/gi, '')\n    // Remove promotional calls-to-action\n    .replace(/click here to.*?(?=\\n|$)/gi, '')\n    .replace(/sign up.*?(?=\\n|$)/gi, '');\n}\n\n// 2. Remove images and videos\nfunction removeMediaContent(content) {\n  return content\n    // Remove markdown images\n    .replace(/!\\[.*?\\]\\(.*?\\)/g, '')\n    // Remove HTML img tags\n    .replace(/<img[^>]*>/gi, '')\n    // Remove video embeds\n    .replace(/<video[^>]*>.*?<\\/video>/gis, '')\n    .replace(/\\[.*?video.*?\\]/gi, '')\n    .replace(/watch.*?here.*?\\[.*?\\]/gi, '');\n}\n\n// 3. Clean URLs (remove UTM parameters)\nfunction cleanUrls(content) {\n  return content.replace(/\\((https?:\\/\\/[^\\s\\)]+)\\?[^\\)]*\\)/g, '($1)');\n}\n\n// 4. Remove engagement queries and polls\nfunction removeEngagementContent(content) {\n  return content\n    // Remove polls and surveys\n    .replace(/what did you think.*?\\?.*?(?=\\n|$)/gi, '')\n    .replace(/rate this.*?(?=\\n|$)/gi, '')\n    .replace(/feedback.*?\\?.*?(?=\\n|$)/gi, '')\n    // Remove social engagement prompts\n    .replace(/share this.*?(?=\\n|$)/gi, '')\n    .replace(/follow us.*?(?=\\n|$)/gi, '');\n}\n\n// 5. Remove ancillary language and navigation\nfunction removeAncillaryContent(content) {\n  return content\n    // Remove navigation elements\n    .replace(/view more.*?(?=\\n|$)/gi, '')\n    .replace(/twitter widget iframe/gi, '')\n    .replace(/read more.*?(?=\\n|$)/gi, '')\n    // Remove repeated headlines (pattern: \"- Title # Title\")\n    .replace(/^-\\s*(.+?)\\s*#\\s*\\1\\s*$/gim, '# $1')\n    // Remove footer elements\n    .replace(/unsubscribe.*?(?=\\n|$)/gi, '')\n    .replace(/manage preferences.*?(?=\\n|$)/gi, '');\n}\n\n// 6. Remove author information\nfunction removeAuthorInfo(content) {\n  return content\n    // Remove bylines and author attribution\n    .replace(/^by\\s+.*?(?=\\n|$)/gim, '')\n    .replace(/author:?\\s*.*?(?=\\n|$)/gi, '')\n    // Remove author images and social links\n    .replace(/\\[.*?author.*?\\]/gi, '')\n    .replace(/@\\w+/g, '')  // Remove @ mentions\n    // Remove publication dates with author names\n    .replace(/.*?\\d{4}.*?\\/.*?(?=\\n|$)/g, '');\n}\n\n// 7. Clean excessive whitespace and formatting\nfunction normalizeWhitespace(content) {\n  return content\n    .replace(/\\n\\s*\\n\\s*\\n/g, '\\n\\n')  // Collapse multiple line breaks\n    .replace(/^\\s+|\\s+$/gm, '')         // Trim lines\n    .replace(/\\s+/g, ' ')              // Normalize spaces\n    .trim();\n}\n\n// MAIN PROCESSING LOOP\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  let content = '';\n  \n  // The S3 download puts content in binary.data as a JSON object\n  if (item.binary && item.binary.data) {\n    try {\n      // Parse the JSON object from binary data\n      let binaryContent;\n      if (typeof item.binary.data === 'string') {\n        binaryContent = JSON.parse(item.binary.data);\n      } else {\n        binaryContent = item.binary.data;\n      }\n      \n      // Extract the Base64 data and decode it\n      if (binaryContent && binaryContent.data) {\n        content = Buffer.from(binaryContent.data, 'base64').toString('utf8');\n      }\n    } catch (error) {\n      // Fallback to string content if JSON parsing fails\n      if (Buffer.isBuffer(item.binary.data)) {\n        content = item.binary.data.toString('utf8');\n      } else if (typeof item.binary.data === 'string') {\n        content = item.binary.data;\n      }\n    }\n  }\n  \n  // APPLY CONTENT CLEANING PIPELINE\n  const originalLength = content.length;\n  \n  content = removeAdvertisements(content);\n  content = removeMediaContent(content);\n  content = cleanUrls(content);\n  content = removeEngagementContent(content);\n  content = removeAncillaryContent(content);\n  content = removeAuthorInfo(content);\n  content = normalizeWhitespace(content);\n  \n  const cleanedLength = content.length;\n  const reductionPercentage = originalLength > 0 ? ((originalLength - cleanedLength) / originalLength * 100).toFixed(1) : 0;\n  \n  const metadata = item.json || {};\n  \n  // Clean up title from slug\n  const title = metadata.title_slug\n    ? metadata.title_slug.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')\n    : `File ${i + 1}`;\n  \n  results.push({\n    ...metadata,\n    title: title,\n    content: content,\n    content_length: cleanedLength,\n    original_length: originalLength,\n    cleaning_reduction: `${reductionPercentage}%`,\n    word_count: content ? content.split(/\\s+/).filter(word => word.length > 0).length : 0\n  });\n}\n\nreturn results.map(result => ({ json: result }));"
+      },
+      "id": "a4173984-e6ad-43e2-be79-ae6ec3a6bda6",
+      "name": "Parse Content & Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "f6b1638a-8a24-414f-8bb3-449728be0d39",
+      "name": "Aggregate All Content",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -656,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine all articles into a structured markdown newsletter with single-date focus\nconst articles = $input.first().json.data;\n\n// STAGE 1.2: SINGLE-DATE CONTENT PROCESSING\n// Determine target date (most recent or current date)\nconst today = new Date().toISOString().split('T')[0];\n\n// Group articles by date and identify target date\nconst articlesByDate = {};\nfor (const article of articles) {\n  if (!articlesByDate[article.date]) {\n    articlesByDate[article.date] = [];\n  }\n  articlesByDate[article.date].push(article);\n}\n\nconst availableDates = Object.keys(articlesByDate).sort();\nconst targetDate = availableDates.includes(today) ? today : availableDates[availableDates.length - 1];\n\n// ONLY PROCESS ARTICLES FROM TARGET DATE\nconst targetArticles = articlesByDate[targetDate] || [];\n\n// Build combined markdown for single date only\nlet combinedMarkdown = '';\n\n// Header - always single date\ncombinedMarkdown += `# Daily Newsletter - ${targetDate}\\n\\n`;\n\n// Add processing note if date mismatch\nif (targetDate !== today) {\n  combinedMarkdown += `*Note: Processing newsletter for ${targetDate} (latest available content)*\\n\\n`;\n}\n\n// Content for target date only\nif (targetArticles.length > 0) {\n  combinedMarkdown += `## ${targetDate}\\n\\n`;\n  \n  for (const article of targetArticles) {\n    // Format source name nicely\n    const sourceName = article.source\n      .split('-')\n      .map(word => word.charAt(0).toUpperCase() + word.slice(1))\n      .join(' ');\n    \n    combinedMarkdown += `### ${article.title} (${sourceName})\\n\\n`;\n    combinedMarkdown += `${article.content}\\n\\n`;\n    \n    // Add cleaning statistics as comment for debugging\n    if (article.cleaning_reduction) {\n      combinedMarkdown += `<!-- Content cleaned: ${article.cleaning_reduction} reduction from ${article.original_length} chars -->\\n\\n`;\n    }\n    \n    combinedMarkdown += `---\\n\\n`;\n  }\n} else {\n  combinedMarkdown += `No articles available for ${targetDate}.\\n\\n`;\n}\n\n// Generate statistics for target date only\nconst totalArticles = targetArticles.length;\nconst totalWords = targetArticles.reduce((sum, article) => sum + article.word_count, 0);\nconst totalOriginalChars = targetArticles.reduce((sum, article) => sum + (article.original_length || 0), 0);\nconst totalCleanedChars = targetArticles.reduce((sum, article) => sum + article.content_length, 0);\nconst overallReduction = totalOriginalChars > 0 ? ((totalOriginalChars - totalCleanedChars) / totalOriginalChars * 100).toFixed(1) : 0;\nconst sources = [...new Set(targetArticles.map(a => a.source))];\n\n// Include all available dates for reference\nconst dateInfo = {\n  target_date: targetDate,\n  available_dates: availableDates,\n  date_selection_reason: targetDate === today ? 'current_date' : 'latest_available',\n  total_dates_available: availableDates.length,\n  skipped_dates: availableDates.filter(date => date !== targetDate)\n};\n\nreturn [{\n  json: {\n    newsletter_content: combinedMarkdown,\n    date_processing: dateInfo,\n    content_cleaning_stats: {\n      total_articles: totalArticles,\n      total_words: totalWords,\n      original_characters: totalOriginalChars,\n      cleaned_characters: totalCleanedChars,\n      overall_reduction: `${overallReduction}%`,\n      sources_processed: sources\n    },\n    statistics: {\n      total_articles: totalArticles,\n      total_words: totalWords,\n      date_range: { start: targetDate, end: targetDate },\n      sources_processed: sources,\n      processing_date: new Date().toISOString(),\n      content_cleaning_enabled: true\n    }\n  }\n}];"
+      },
+      "id": "60db203d-9d45-4fad-bbc6-bc5d2e412b42",
+      "name": "Combine into Newsletter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Update tracking file with latest run information\nconst statistics = $input.first().json.statistics;\nconst originalTracking = $('Calculate Date Range').first().json.tracking_data;\n\nconst updatedTracking = {\n  last_successful_run: new Date().toISOString(),\n  last_processed_date: statistics.date_range.end,\n  files_processed: statistics.total_articles,\n  workflow_version: \"1.0\",\n  last_run_statistics: statistics\n};\n\nreturn [{\n  json: {\n    tracking_update: updatedTracking,\n    newsletter_content: $input.first().json.combined_markdown,\n    statistics: statistics\n  }\n}];"
+      },
+      "id": "bdefbbfd-04d1-47b4-80a5-9afe35c75369",
+      "name": "Prepare Tracking Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "n8n-ai-news-stories",
+        "fileName": "newsletter-automation-last-run.json",
+        "binaryData": false,
+        "fileContent": "={{ JSON.stringify($json.tracking_update, null, 2) }}",
+        "additionalFields": {}
+      },
+      "id": "ab70e68f-c782-45a7-a8e2-65777054b6c1",
+      "name": "Update Tracking File",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "s3": {
+          "id": "WRnQEZaYQvFm8YY3",
+          "name": "Cloudflare R2 S3 Format Datalake"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "n8n-ai-news-stories",
+        "fileName": "={{ 'newsletter-combined-' + $json.statistics.processing_date.split('T')[0] + '.md' }}",
+        "binaryData": false,
+        "fileContent": "={{ $json.newsletter_content }}",
+        "additionalFields": {}
+      },
+      "id": "0b6da435-918d-4930-9dbd-316555b13f49",
+      "name": "Save Combined Newsletter",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        0,
+        208
+      ],
+      "credentials": {
+        "s3": {
+          "id": "WRnQEZaYQvFm8YY3",
+          "name": "Cloudflare R2 S3 Format Datalake"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Weekly Newsletter Trigger": {
+      "main": [
+        [
+          {
+            "node": "Initialize Date Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger (Testing/Override)": {
+      "main": [
+        [
+          {
+            "node": "Initialize Date Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Date Processing": {
+      "main": [
+        [
+          {
+            "node": "Fetch Last Run Tracking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Last Run Tracking": {
+      "main": [
+        [
+          {
+            "node": "Calculate Date Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Date Range": {
+      "main": [
+        [
+          {
+            "node": "Split Date Prefixes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Date Prefixes": {
+      "main": [
+        [
+          {
+            "node": "List Files by Date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Files by Date": {
+      "main": [
+        [
+          {
+            "node": "Filter & Parse Markdown Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter & Parse Markdown Files": {
+      "main": [
+        [
+          {
+            "node": "Download Markdown Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Markdown Content": {
+      "main": [
+        [
+          {
+            "node": "Parse Content & Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Content & Metadata": {
+      "main": [
+        [
+          {
+            "node": "Aggregate All Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate All Content": {
+      "main": [
+        [
+          {
+            "node": "Combine into Newsletter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine into Newsletter": {
+      "main": [
+        [
+          {
+            "node": "Prepare Tracking Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Tracking Update": {
+      "main": [
+        [
+          {
+            "node": "Update Tracking File",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Combined Newsletter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "a86cd0b9-47fd-4d3e-8844-97c1002ab273",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d735d77f21fd4aef6b73e3673b1ecc97bb1c1f558cf83cdb9413cefd83cbd75c"
+  },
+  "id": "bqfkxzc5vqPrv7JU",
+  "tags": [
+    {
+      "createdAt": "2025-09-20T19:12:46.803Z",
+      "updatedAt": "2025-09-20T19:12:46.803Z",
+      "id": "RdvXnBOO6BbftY0g",
+      "name": "RSS"
+    },
+    {
+      "createdAt": "2025-09-19T22:34:09.163Z",
+      "updatedAt": "2025-09-19T22:34:09.163Z",
+      "id": "a58pFV5Wcl0MIzkr",
+      "name": "Newsletter"
+    }
+  ]
+}
