@@ -1,0 +1,76 @@
+{
+  "processedDate": "2025-09-24T10:00:00Z",
+  "sourceFile": "newsletter-combined-2025-09-24.md",
+  "totalArticles": 11,
+  "duplicatesRemoved": 1,
+  "qualityThresholdPassed": 10,
+  "finalSelections": 4,
+  "averageScore": 7.8,
+  "diversityScore": 10.0,
+  "selectedStories": [
+    {
+      "title": "OpenAI's GPT-4.1 family launches with million-token context",
+      "source": "techcrunch",
+      "content": "OpenAI has quietly released its GPT-4.1 model family, featuring dramatically expanded context windows of up to one million tokens and significantly improved coding capabilities. The new models, available through the API, offer 40% lower pricing compared to previous generations while maintaining superior performance across key benchmarks. The release includes three variants optimized for different use cases: GPT-4.1-base for general applications, GPT-4.1-code for development tasks, and GPT-4.1-reasoning for complex analytical work. Early testing shows the models excel at processing entire codebases, lengthy documents, and maintaining coherent conversations across extended sessions. Industry experts suggest this could accelerate the development of AI agents capable of handling complex, multi-step workflows.",
+      "summary": "OpenAI releases GPT-4.1 with million-token context windows, improved coding, and 40% lower pricing",
+      "wordCount": 850,
+      "qualityScore": 8,
+      "relevanceScore": 9,
+      "totalScore": 8.2,
+      "sourceAuthority": 3,
+      "aiKeywords": ["gpt", "openai", "ai", "artificial intelligence"]
+    },
+    {
+      "title": "Anthropic's Claude gains web search capabilities",
+      "source": "the-verge",
+      "content": "Anthropic has rolled out real-time web search functionality to Claude, marking a significant milestone in the AI assistant's evolution. The feature allows Claude to access current information, breaking free from its training data cutoff limitations. Users can now ask questions about recent events, stock prices, weather, and breaking news, with Claude providing sourced, up-to-date responses. The implementation uses a carefully curated search approach that prioritizes authoritative sources and fact-checking. Anthropic emphasizes that the feature maintains Claude's core safety principles, with built-in filters to avoid harmful or inappropriate content. The web search capability is currently available to Claude Pro subscribers and will roll out to free users gradually over the coming weeks.",
+      "summary": "Claude now searches the web for real-time information, ending training data limitations",
+      "wordCount": 720,
+      "qualityScore": 7,
+      "relevanceScore": 8,
+      "totalScore": 7.6,
+      "sourceAuthority": 3,
+      "aiKeywords": ["claude", "anthropic", "ai", "web search"]
+    },
+    {
+      "title": "Google's Gemini 2.0 achieves breakthrough in reasoning tasks",
+      "source": "wired",
+      "content": "Google has unveiled Gemini 2.0, claiming significant advances in logical reasoning and mathematical problem-solving capabilities. The model demonstrates unprecedented performance on complex multi-step reasoning benchmarks, scoring 94.2% on the challenging ARC-AGI dataset compared to its predecessor's 78.1%. Internal testing reveals the model can now tackle graduate-level mathematics, advanced coding challenges, and scientific reasoning tasks that previously stumped AI systems. Google attributes the improvements to a novel training approach that emphasizes chain-of-thought reasoning and verification steps. The model also features enhanced multimodal capabilities, seamlessly processing text, images, audio, and video in unified workflows. Researchers suggest this could represent a crucial step toward more general artificial intelligence, though commercial availability remains limited to enterprise customers.",
+      "summary": "Google's Gemini 2.0 shows major reasoning improvements with 94% ARC-AGI performance",
+      "wordCount": 680,
+      "qualityScore": 8,
+      "relevanceScore": 8,
+      "totalScore": 8.0,
+      "sourceAuthority": 3,
+      "aiKeywords": ["gemini", "google", "ai", "reasoning", "artificial intelligence"]
+    },
+    {
+      "title": "Microsoft integrates AI across entire Office suite",
+      "source": "superhuman",
+      "content": "Microsoft has announced the most comprehensive AI integration in Office history, embedding intelligent capabilities across Word, Excel, PowerPoint, and Outlook. The new Copilot features can draft documents, analyze complex datasets, create presentations, and manage email workflows with minimal user input. In Excel, AI can now interpret natural language queries to generate sophisticated charts and perform advanced data analysis. PowerPoint's AI assistant creates full presentations from brief outlines, complete with relevant images and design elements. Word's enhanced AI helps with everything from grammar checking to content structure optimization. Early enterprise pilots show productivity gains of 25-40% for knowledge workers. The rollout begins with Microsoft 365 enterprise customers, with consumer availability expected in Q1 2025.",
+      "summary": "Microsoft embeds comprehensive AI across Office suite, showing 25-40% productivity gains",
+      "wordCount": 650,
+      "qualityScore": 7,
+      "relevanceScore": 7,
+      "totalScore": 7.4,
+      "sourceAuthority": 2,
+      "aiKeywords": ["microsoft", "ai", "office", "copilot", "productivity"]
+    }
+  ],
+  "processingStats": {
+    "duplicateThreshold": 0.7,
+    "qualityScoring": {
+      "contentLength": "weighted",
+      "sourceAuthority": "techcrunch=3, the-verge=3, wired=3, superhuman=2",
+      "aiKeywordRelevance": "matched keywords boost score"
+    },
+    "diversityOptimization": "ensured 4 different sources",
+    "selectionCriteria": "top 4 articles with source diversity optimization"
+  },
+  "metadata": {
+    "workflowVersion": "2.1",
+    "algorithm": "simple-deduplication",
+    "dateValidation": "passed",
+    "generatedBy": "phase2-simple-dedup.json"
+  }
+}

@@ -1,0 +1,597 @@
+{
+  "name": "Phase 3A - Newsletter Generation",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Phase 3A: Newsletter Generation\n\nStandalone workflow that:\n1. Detects latest curated-stories-{date}.json from R2\n2. Generates newsletter content with 3-section format\n3. Creates AI subject lines with alternatives\n4. Outputs newsletter-{date}.md to R2\n5. Gmail notification on completion",
+        "height": 400,
+        "width": 600,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [0, 80],
+      "typeVersion": 1,
+      "id": "workflow-overview",
+      "name": "Workflow Overview"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "id": "manual-trigger",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 500],
+      "id": "daily-schedule-trigger",
+      "name": "Daily 7AM Schedule"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "getAll",
+        "bucketName": "n8n-ai-news-stories",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "id": "list-curated-files",
+      "name": "List Curated Files",
+      "credentials": {
+        "aws": {
+          "id": "cloudflare-r2-s3",
+          "name": "Cloudflare R2 S3 Format Datalake"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Find latest curated-stories file\nconst curatedFiles = [];\n\nfor (const inputItem of $input.all()) {\n  const file = inputItem.json;\n  const fileName = file.Key || file.key || file.name || file.fileName;\n  \n  if (fileName && fileName.startsWith('curated-stories-') && fileName.endsWith('.json')) {\n    const dateMatch = fileName.match(/curated-stories-(\\d{4}-\\d{2}-\\d{2})\\.json$/);\n    if (dateMatch) {\n      curatedFiles.push({\n        fileName: fileName,\n        date: dateMatch[1],\n        lastModified: file.LastModified || file.lastModified || new Date().toISOString(),\n        fullPath: fileName\n      });\n    }\n  }\n}\n\n// Sort by date (newest first)\ncuratedFiles.sort((a, b) => new Date(b.date) - new Date(a.date));\n\nif (curatedFiles.length === 0) {\n  throw new Error('No curated-stories files found in R2 bucket');\n}\n\n// Get the latest file\nconst latestFile = curatedFiles[0];\nconst today = new Date().toISOString().split('T')[0];\nconst todayDate = new Date(today);\nconst latestDate = new Date(latestFile.date);\n\n// Date validation (non-interrupting)\nconst dateMismatch = latestFile.date !== today;\nlet mismatchSeverity = 'none';\nif (dateMismatch) {\n  const daysDiff = Math.round((todayDate - latestDate) / (1000 * 60 * 60 * 24));\n  if (daysDiff === 1) mismatchSeverity = 'minor';\n  else if (daysDiff > 1) mismatchSeverity = 'major';\n  else mismatchSeverity = 'future';\n}\n\nreturn {\n  latestFile: latestFile,\n  dateMismatch: dateMismatch,\n  mismatchSeverity: mismatchSeverity,\n  allFiles: curatedFiles,\n  processingDate: today\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300],
+      "id": "find-latest-curated",
+      "name": "Find Latest Curated File"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "download",
+        "bucketName": "n8n-ai-news-stories",
+        "fileKey": "={{ $json.latestFile.fileName }}"
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [600, 300],
+      "id": "download-curated-json",
+      "name": "Download Curated JSON",
+      "credentials": {
+        "aws": {
+          "id": "cloudflare-r2-s3",
+          "name": "Cloudflare R2 S3 Format Datalake"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "data"
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [800, 300],
+      "id": "extract-json-content",
+      "name": "Extract JSON Content"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the curated stories JSON with enhanced error handling\nlet jsonContent;\n\ntry {\n  // Get the data from the extract node\n  const rawData = $input.first().json.data;\n  \n  if (!rawData) {\n    throw new Error('No data received from extract node');\n  }\n  \n  // Parse the JSON content\n  jsonContent = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;\n  \n  console.log('Parsed JSON structure keys:', Object.keys(jsonContent));\n  \n} catch (parseError) {\n  throw new Error(`Failed to parse JSON content: ${parseError.message}`);\n}\n\n// Validate structure\nif (!jsonContent) {\n  throw new Error('Empty JSON content after parsing');\n}\n\n// Handle both selectedStories (sample format) and selected_articles (actual format)\nlet storiesArray;\nif (jsonContent.selectedStories) {\n  storiesArray = jsonContent.selectedStories;\n} else if (jsonContent.selected_articles) {\n  storiesArray = jsonContent.selected_articles;\n} else {\n  throw new Error(`Invalid curated-stories JSON structure: missing stories array. Available properties: ${Object.keys(jsonContent).join(', ')}`);\n}\n\nif (!Array.isArray(storiesArray)) {\n  throw new Error(`Stories data is not an array, it is: ${typeof storiesArray}`);\n}\n\nif (storiesArray.length === 0) {\n  throw new Error('No stories found in stories array');\n}\n\n// Extract metadata - handle both formats\nconst metadata = {\n  processedDate: jsonContent.processing_metadata?.processing_date || jsonContent.processedDate || jsonContent.date || new Date().toISOString(),\n  totalArticles: jsonContent.processing_metadata?.total_articles_processed || jsonContent.totalArticles || storiesArray.length,\n  averageScore: jsonContent.curation_analysis?.quality_statistics?.average_score || jsonContent.averageScore || 0,\n  diversityScore: jsonContent.curation_analysis?.portfolio_analysis?.diversity_score || jsonContent.diversityScore || 0,\n  source: 'curated-stories',\n  workflowVersion: jsonContent.processing_metadata?.workflow_version || jsonContent.metadata?.workflowVersion || 'unknown'\n};\n\n// Extract the top 4 stories for newsletter\nconst stories = storiesArray.slice(0, 4).map((story, index) => ({\n  ...story,\n  position: index + 1,\n  isLead: index === 0\n}));\n\nconsole.log(`Successfully parsed ${stories.length} stories for newsletter`);\nconsole.log('Story titles:', stories.map(s => s.title));\n\nreturn {\n  stories: stories,\n  metadata: metadata,\n  originalData: jsonContent\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300],
+      "id": "parse-curated-data",
+      "name": "Parse Curated Data"
+    },
+    {
+      "parameters": {
+        "content": "## AI Subject Line Generation\n\nGenerates compelling subject lines with:\n- Focus on lead story (first in array)\n- Multiple alternatives with reasoning\n- Pre-header text for email previews\n- Maximum hook impact optimization",
+        "height": 300,
+        "width": 800,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [1200, 80],
+      "typeVersion": 1,
+      "id": "subject-line-section",
+      "name": "Subject Line Generation"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## Role & Objective\nYou are an expert email copywriter specializing in AI newsletter subject lines that maximize open rates. Create compelling subject lines focused on the lead story with maximum \"hook\" impact.\n\n## Task\nGenerate subject lines and pre-header text based on the curated newsletter stories. Focus exclusively on the **lead story** (first in the list) for the main subject line.\n\n## Guidelines\n- **Length**: 7-9 words maximum for subject line\n- **Style**: Clear, direct, curiosity-driven without being clickbait\n- **Focus**: Must highlight the lead story exclusively\n- **Tone**: Professional yet engaging for AI enthusiasts\n- **Avoid**: ALL CAPS, excessive punctuation, over-exaggeration\n\n## Input Data\n**Lead Story**: {{ $json.stories[0].title }}\n**Lead Story Content**: {{ $json.stories[0].content || $json.stories[0].summary }}\n**Processing Date**: {{ $json.date }}\n\n**All Stories Summary**:\n{{ $json.stories.map((story, idx) => `${idx + 1}. ${story.title} (${story.source})`).join('\\n') }}\n\n## Output Requirements\n1. **Primary Subject Line**: Most compelling option for the lead story\n2. **5 Alternative Subject Lines**: Other strong options considered\n3. **Pre-header Text**: 15-20 words that complements subject line and hints at other stories\n4. **Reasoning**: Detailed explanation of choices and strategy",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are an expert email copywriter specializing in AI newsletter subject lines that maximize open rates and engage tech-savvy readers."
+            }
+          ]
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [1400, 300],
+      "id": "generate-subject-lines",
+      "name": "Generate Subject Lines"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"reasoning\": {\n      \"type\": \"string\",\n      \"description\": \"Detailed explanation of subject line strategy and choices made\"\n    },\n    \"primarySubjectLine\": {\n      \"type\": \"string\",\n      \"description\": \"The best subject line for maximum open rates (7-9 words)\"\n    },\n    \"alternativeSubjectLines\": {\n      \"type\": \"array\",\n      \"description\": \"5 other strong subject line options considered\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    },\n    \"preHeaderText\": {\n      \"type\": \"string\",\n      \"description\": \"Pre-header text that complements subject line and hints at other stories (15-20 words)\"\n    }\n  },\n  \"required\": [\"reasoning\", \"primarySubjectLine\", \"alternativeSubjectLines\", \"preHeaderText\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [1400, 500],
+      "id": "subject-line-parser",
+      "name": "Subject Line Parser"
+    },
+    {
+      "parameters": {
+        "content": "## Newsletter Content Generation\n\nGenerates structured newsletter content:\n- Intro section teasing the 4 stories\n- Each story in 3-section format:\n  * The Recap (1-2 sentences)\n  * Unpacked (3-4 bullets)\n  * Bottom Line (2 sentences)\n- Axios-like professional style",
+        "height": 400,
+        "width": 1000,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [2200, 80],
+      "typeVersion": 1,
+      "id": "content-generation-section",
+      "name": "Content Generation"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## Role & Objective\nYou are an expert newsletter writer creating an engaging introduction for \"AI Recap\" newsletter that teases the main stories and hooks readers.\n\n## Task\nCreate an introduction section that:\n1. Opens with greeting: **{{ 'first_name | AI enthusiast' }}** (bolded)\n2. First paragraph: Introduce the most prominent story (2-3 sentences)\n3. Second paragraph: Elaborate or pose key question about implications (2-3 sentences) \n4. Transition: **In today's AI recap:** (bolded)\n5. Bulleted list: 4 items summarizing the main stories (use - format)\n\n## Style Guidelines\n- Informative, engaging, slightly speculative\n- Concise and enthusiastic for AI developers and enthusiasts\n- Avoid flowery language - keep it simple and readable\n- Match \"The Rundown\" and \"Axios\" newsletter style\n\n## Input Stories\nProcessing Date: {{ $json.date }}\n\n{{ $json.stories.map((story, idx) => `${idx + 1}. **${story.title}** (${story.source})\\nContent: ${story.content || story.summary || 'No content available'}`).join('\\n\\n') }}\n\n## Generated Subject Line Context\nSubject: {{ $json.output.primarySubjectLine }}\nPre-header: {{ $json.output.preHeaderText }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are an expert newsletter writer who creates engaging, informative introductions that hook readers and provide clear value for AI enthusiasts and professionals."
+            }
+          ]
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [2400, 300],
+      "id": "generate-intro",
+      "name": "Generate Newsletter Intro"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"reasoning\": {\n      \"type\": \"string\",\n      \"description\": \"Explanation of intro writing strategy and content choices\"\n    },\n    \"introContent\": {\n      \"type\": \"string\",\n      \"description\": \"Complete introduction section formatted in markdown\"\n    }\n  },\n  \"required\": [\"reasoning\", \"introContent\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [2400, 500],
+      "id": "intro-parser",
+      "name": "Intro Parser"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare stories data for splitting\n// Get the stories from the parsed curated data\nconst storiesData = $('Parse Curated Data').item.json.stories;\n\n// Return the stories array so Split Stories can process it\nreturn {\n  stories: storiesData\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2600, 300],
+      "id": "prepare-stories-for-split",
+      "name": "Prepare Stories for Split"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "stories",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [2800, 300],
+      "id": "split-stories",
+      "name": "Split Stories"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=## Role & Objective\nYou are an expert newsletter writer creating detailed story segments in the style of Axios and The Rundown for AI enthusiasts.\n\n## Task\nTransform this story into a 3-section newsletter segment:\n\n### Story Details\n**Position**: {{ $json.position }} of 4 {{ $json.isLead ? '(LEAD STORY)' : '' }}\n**Title**: {{ $json.title }}\n**Source**: {{ $json.source }}\n**Content**: {{ $json.content || $json.summary || 'Content not available' }}\n**Quality Score**: {{ $json.totalScore || 'N/A' }}\n\n## Required Format\n\n### Section Structure:\n1. **Headline**: Use story title as H2 heading (`## Title`)\n2. **The Recap**: (bolded) 1-2 sentence summary of the story\n3. **Unpacked**: (bolded) 3-4 bullet points (use `-` format) expanding on key details\n4. **Bottom line**: (bolded) 2 sentences on significance and impact\n\n## Style Guidelines\n- **Audience**: Tech-forward readers, AI enthusiasts, developers\n- **Tone**: Enthusiastic, optimistic, authoritative yet approachable  \n- **Voice**: Clear, direct, conversational (use \"we,\" \"you\")\n- **Length**: Keep paragraphs short, bullets concise\n- **Technical**: Avoid deep jargon but don't oversimplify\n\n## Content Requirements\n- Base content strictly on provided information\n- Use active voice and strong verbs\n- Bold key data points and important terms\n- Maintain factual accuracy\n- Focus on practical implications for readers",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are an expert newsletter writer who creates engaging, informative story segments for AI professionals and enthusiasts, focusing on practical implications and clear value."
+            }
+          ]
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [3000, 300],
+      "id": "generate-story-segment",
+      "name": "Generate Story Segment"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"reasoning\": {\n      \"type\": \"string\",\n      \"description\": \"Explanation of story segment writing approach and content decisions\"\n    },\n    \"storyContent\": {\n      \"type\": \"string\",\n      \"description\": \"Complete story segment with 3-section format in markdown\"\n    },\n    \"storyTitle\": {\n      \"type\": \"string\",\n      \"description\": \"Clean title for the story segment\"\n    }\n  },\n  \"required\": [\"reasoning\", \"storyContent\", \"storyTitle\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [3000, 500],
+      "id": "story-segment-parser",
+      "name": "Story Segment Parser"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "output.storyContent"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [3400, 300],
+      "id": "aggregate-story-segments",
+      "name": "Aggregate Story Segments"
+    },
+    {
+      "parameters": {
+        "content": "## Final Newsletter Assembly\n\nCombines all components:\n- Subject line & pre-header\n- Introduction section\n- All story segments \n- Outputs to R2 as newsletter-{date}.md\n- Gmail notification",
+        "height": 300,
+        "width": 600,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [3600, 80],
+      "typeVersion": 1,
+      "id": "final-assembly-section",
+      "name": "Final Assembly"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Assemble the complete newsletter from aggregated story segments\n// The current input ($json) contains the aggregated story content\nconst aggregatedStories = $json;\n\n// Retrieve data from previous nodes using node references\nconst subjectLineData = $('Generate Subject Lines').item.json.output;\nconst introData = $('Generate Newsletter Intro').item.json.output;\nconst metadata = $('Parse Curated Data').item.json.metadata;\nconst processingInfo = $('Find Latest Curated File').item.json;\n\n// Build newsletter content\nconst newsletter = `# ${subjectLineData.primarySubjectLine}\n\n${subjectLineData.preHeaderText}\n\n---\n\n${introData.introContent}\n\n---\n\n${aggregatedStories.storyContent.join('\\n\\n---\\n\\n')}\n\n---\n\n*Generated from curated stories on ${processingInfo.processingDate}*\n*Source: ${processingInfo.latestFile.fileName}*\n*Stories processed: ${metadata.totalArticles} | Average score: ${metadata.averageScore}*`;\n\n// Prepare output data\nconst outputFileName = `newsletter-${processingInfo.latestFile.date}.md`;\nconst newsletterData = {\n  content: newsletter,\n  fileName: outputFileName,\n  generatedDate: new Date().toISOString(),\n  sourceFile: processingInfo.latestFile.fileName,\n  sourceDate: processingInfo.latestFile.date,\n  subjectLine: subjectLineData.primarySubjectLine,\n  preHeaderText: subjectLineData.preHeaderText,\n  alternativeSubjects: subjectLineData.alternativeSubjectLines,\n  storiesCount: aggregatedStories.storyContent.length,\n  dateMismatch: processingInfo.dateMismatch,\n  mismatchSeverity: processingInfo.mismatchSeverity,\n  metadata: metadata\n};\n\nreturn newsletterData;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3800, 300],
+      "id": "assemble-newsletter",
+      "name": "Assemble Newsletter"
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "content",
+        "options": {
+          "fileName": "={{ $json.fileName }}"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [4000, 300],
+      "id": "create-newsletter-file",
+      "name": "Create Newsletter File"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "bucketName": "n8n-ai-news-stories",
+        "fileName": "={{ $('Assemble Newsletter').item.json.fileName }}",
+        "binaryPropertyName": "data"
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [4200, 300],
+      "id": "upload-newsletter-to-r2",
+      "name": "Upload Newsletter to R2",
+      "credentials": {
+        "aws": {
+          "id": "cloudflare-r2-s3",
+          "name": "Cloudflare R2 S3 Format Datalake"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sendTo": "justin@herenowai.com",
+        "subject": "=Newsletter Generated: {{ $('Assemble Newsletter').item.json.subjectLine }}",
+        "message": "=Newsletter Generation Complete\n\n📰 **Subject Line**: {{ $('Assemble Newsletter').item.json.subjectLine }}\n📝 **Pre-header**: {{ $('Assemble Newsletter').item.json.preHeaderText }}\n📅 **Date**: {{ $('Assemble Newsletter').item.json.sourceDate }}\n📁 **Output File**: {{ $('Assemble Newsletter').item.json.fileName }}\n📊 **Stories**: {{ $('Assemble Newsletter').item.json.storiesCount }}\n\n{{ $('Assemble Newsletter').item.json.dateMismatch ? '⚠️ **Date Mismatch Detected**: Newsletter date (' + $('Assemble Newsletter').item.json.sourceDate + ') differs from processing date (' + $('Assemble Newsletter').item.json.generatedDate.split('T')[0] + ')' : '✅ **Date Match**: Newsletter date matches processing date' }}\n\n**Alternative Subject Lines:**\n{{ $('Assemble Newsletter').item.json.alternativeSubjects.map(alt => '• ' + alt).join('\\n') }}\n\n**Source Metadata:**\n• Source file: {{ $('Assemble Newsletter').item.json.sourceFile }}\n• Total articles processed: {{ $('Assemble Newsletter').item.json.metadata.totalArticles }}\n• Average quality score: {{ $('Assemble Newsletter').item.json.metadata.averageScore }}\n• Diversity score: {{ $('Assemble Newsletter').item.json.metadata.diversityScore }}\n\n🎯 Newsletter generation completed successfully!",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [4400, 300],
+      "id": "send-completion-email",
+      "name": "Send Completion Email",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "DbgMOOrFimJRx5qQ",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20241022",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [1600, 600],
+      "id": "claude-model",
+      "name": "Claude 3.5 Sonnet"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "List Curated Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 7AM Schedule": {
+      "main": [
+        [
+          {
+            "node": "List Curated Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Curated Files": {
+      "main": [
+        [
+          {
+            "node": "Find Latest Curated File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Latest Curated File": {
+      "main": [
+        [
+          {
+            "node": "Download Curated JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Curated JSON": {
+      "main": [
+        [
+          {
+            "node": "Extract JSON Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract JSON Content": {
+      "main": [
+        [
+          {
+            "node": "Parse Curated Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Curated Data": {
+      "main": [
+        [
+          {
+            "node": "Generate Subject Lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Subject Lines": {
+      "main": [
+        [
+          {
+            "node": "Generate Newsletter Intro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Newsletter Intro": {
+      "main": [
+        [
+          {
+            "node": "Prepare Stories for Split",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Stories for Split": {
+      "main": [
+        [
+          {
+            "node": "Split Stories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Stories": {
+      "main": [
+        [
+          {
+            "node": "Generate Story Segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Story Segment": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Story Segments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Story Segments": {
+      "main": [
+        [
+          {
+            "node": "Assemble Newsletter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Newsletter": {
+      "main": [
+        [
+          {
+            "node": "Create Newsletter File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Newsletter File": {
+      "main": [
+        [
+          {
+            "node": "Upload Newsletter to R2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Newsletter to R2": {
+      "main": [
+        [
+          {
+            "node": "Send Completion Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subject Line Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Generate Subject Lines",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intro Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Generate Newsletter Intro",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Story Segment Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Generate Story Segment",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude 3.5 Sonnet": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Subject Lines",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Generate Newsletter Intro",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Generate Story Segment",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCreatedBy": "Claude Code",
+    "description": "Phase 3A newsletter generation workflow that processes curated stories into formatted newsletter content"
+  },
+  "id": "phase3a-newsletter-generation"
+}
