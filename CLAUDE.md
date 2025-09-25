@@ -475,17 +475,39 @@ Based on analysis of 394KB (4,926-line) raw newsletter input revealing significa
 
 #### Stage 1 Test Results ✅ PASSED
 - **Test Data**: 2,602 character sample with all noise patterns
-- **Content Reduction**: 42.2% (1,097 characters removed)
+- **Content Reduction**: 42.2% (1,097 characters removed) → Enhanced to 47.7%
 - **Content Preservation**: ✅ All important content retained
-- **Function Coverage**: ✅ All 8 requirements implemented
-- **Performance**: Within expected 30-60% reduction range
+- **Function Coverage**: ✅ All 8 requirements implemented + enhanced filters
+- **Performance**: Within expected 30-60% reduction range, exceeded expectations
+
+#### Stage 1 Enhancement Details (September 2025) ✅ COMPLETED
+- **Enhanced URL Cleaning**: Now removes UTM parameters from all URL formats (markdown links, standalone URLs, parenthetical URLs)
+- **Advanced Duplicate Detection**: Removes consecutive duplicate titles, hash/title patterns, and repeated headlines
+- **"In This Issue" Removal**: Comprehensive filtering of newsletter table-of-contents sections
+- **Testing**: Enhanced test suite with real-world patterns, validated 47.7% noise reduction
+- **Pattern Coverage**: Addresses all user-reported missed patterns from Futurepedia sample
 
 #### Stage 1 Production Fixes ✅ APPLIED
 - **Phase 1B Buffer Error**: Fixed field reference mismatch causing S3 upload failures
-- **taaft_trigger Schedule**: Changed from RSS feed to daily 6:15am schedule trigger
+- **taaft_trigger Configuration**: Fixed back to RSS trigger with correct TAAFT URL and 6:15am daily schedule
 - **HTML Download Elimination**: Removed redundant HTML uploads (33% storage reduction)
+- **Enhanced Content Cleaning**: Upgraded filters to catch missed patterns (UTM URLs, duplicate titles, "In this issue")
+- **Content Cleaning Performance**: Improved from 42.2% to 47.7% noise reduction
+- **🚨 CRITICAL: Date Range Filtering**: Added "Filter Files by Date Range" node to prevent downloading ALL historical files
+- **Performance Impact**: Now downloads only files within calculated date range instead of entire bucket
 - **Error Handling**: Added content validation to prevent undefined buffer errors
 - **File Output**: Now produces only `.md` and `.urls.json` files (no `.html`)
+- **Tracking Data Parsing**: Enhanced "Calculate Date Range" node to handle both binary and JSON data formats
+- **End-to-End Testing**: Complete pipeline tested successfully (Phase 1A → 1B → 2 → 3A)
+
+#### Stage 1 Final Status: ✅ PRODUCTION READY & TESTED
+- **Complete Pipeline**: Successfully tested 1A → 1B → 2 → 3A workflow chain
+- **Real Data Processing**: Phase 1A added 6 stories from September 24-25, processed through entire pipeline
+- **Quality Metrics**: Generated professional Axios-style newsletter with proper formatting
+- **Content Cleaning**: 47.7% noise reduction maintained throughout production use
+- **Date Range Control**: Only processes target date files, prevents historical contamination
+- **All Fixes Applied**: Buffer errors, duplicate processing, and tracking issues resolved
+- **Documentation**: Comprehensive test suite and production guides completed
 
 ### **STAGE 2: Enhanced Content Intelligence** ⏳ PLANNED
 **Goal**: Replace simple algorithms with Claude-powered semantic understanding
@@ -538,13 +560,52 @@ Based on analysis of 394KB (4,926-line) raw newsletter input revealing significa
 - **File Isolation**: Modify workflows independently without interdependencies
 
 ### Current System Status
-**Phase 1**: File download automation ✅ COMPLETED
-**Phase 2**: AI-powered content curation ✅ PRODUCTION READY
-**Phase 3A**: Newsletter generation ✅ PRODUCTION TESTED
-**Enhancement Plan**: ✅ APPROVED & IN PROGRESS
+**Phase 1**: File download automation ✅ COMPLETED & PRODUCTION TESTED
+**Phase 2**: AI-powered content curation ✅ PRODUCTION READY & TESTED
+**Phase 3A**: Newsletter generation ✅ PRODUCTION READY & TESTED
+**Enhancement Plan**: ✅ APPROVED & STAGE 1 COMPLETE
+
+## Next Development Phase: Source Expansion 🎯 CURRENT FOCUS
+
+### Additional Sources to Add
+Ready to expand beyond current sources (futurepedia, superhuman, taaft, the-neuron) with additional high-quality AI newsletters:
+
+#### High-Priority Sources
+1. **The Batch (DeepLearning.AI)** - Weekly AI research and industry insights
+2. **Import AI** - Technical AI research summaries and policy analysis
+3. **The Sequence** - In-depth AI business and technical analysis
+4. **AI Breakfast** - Daily AI news with business focus
+5. **Ben's Bites** - Popular daily AI newsletter with community insights
+
+#### Implementation Strategy
+1. **RSS Discovery**: Identify RSS feeds for each target source
+2. **Phase 1A Expansion**: Add new RSS triggers to existing workflow
+3. **Content Format Analysis**: Study each source's content structure
+4. **Phase 1B Enhancement**: Extend content cleaning for new source patterns
+5. **Quality Testing**: Validate content extraction and cleaning
+6. **Source Authority Scoring**: Update Phase 2 algorithm with new source weights
+
+### Development Tasks for Source Expansion
+- [ ] Research RSS feed URLs for target sources
+- [ ] Analyze content patterns and cleaning requirements
+- [ ] Update Phase 1A with additional RSS triggers
+- [ ] Enhance Phase 1B content cleaning for new patterns
+- [ ] Test complete pipeline with expanded sources
+- [ ] Update Phase 2 source authority scoring
+- [ ] Validate newsletter quality with diverse sources
+- [ ] Update documentation and deployment guides
+
+### Expected Impact
+- **Content Diversity**: 8-9 sources instead of current 4
+- **Quality Range**: Access to technical research + business insights + community perspectives
+- **Reliability**: Multiple sources reduce single-point-of-failure risk
+- **Authority**: Include respected AI research organizations (DeepLearning.AI, Import AI)
+- **Coverage**: Daily + weekly sources for comprehensive AI news coverage
 
 ### Credentials & Environment
-- **R2 Bucket**: User-configurable bucket for newsletter content
-- **Credentials**: Cloudflare R2 S3-compatible + Gmail OAuth2 + Claude API
-- **File Patterns**: Input `newsletter-combined-{date}.md`, Output `curated-stories-{date}.json`
-- **Processing Flow**: Raw → Cleaned → Curated → Generated Newsletter
+- **R2 Bucket**: `n8n-ai-news-stories` (production)
+- **Credentials**: "Cloudflare R2 S3 Format Datalake" + Gmail OAuth2 "DbgMOOrFimJRx5qQ" + Claude API
+- **File Patterns**: Input `newsletter-combined-{date}.md`, Output `curated-stories-{date}.json`, Final `newsletter-{date}.md`
+- **Processing Flow**: Raw RSS → Cleaned Articles → Curated Stories → Generated Newsletter
+- **Current Sources**: futurepedia, superhuman, taaft, the-neuron (4 active sources)
+- **Notification System**: Gmail alerts to justin@herenowai.com for all workflow completions

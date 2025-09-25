@@ -33,6 +33,8 @@ Check out this article: [Link](https://techcrunch.com/article?utm_source=newslet
 
 Visit our site: (https://example.com/page?ref=newsletter&track=click)
 
+Direct URL: https://futurepedia.io/ai-tool/claude?utm_source=newsletter&utm_medium=email&utm_campaign=weekly
+
 ## Test Case 4: Engagement & Polls
 
 What did you think of today's email?
@@ -53,8 +55,21 @@ Twitter Widget Iframe
 
 Read more about this topic here.
 
+In this issue: We cover the latest AI developments, new tool releases, and industry insights.
+
+In this issue:
+- Microsoft Office integration
+- Claude AI updates
+- New startup funding
+
 - Microsoft adds Claude to 365 Copilot
 # Microsoft adds Claude to 365 Copilot
+
+Microsoft adds Claude to 365 Copilot
+Microsoft adds Claude to 365 Copilot
+
+# Breaking: OpenAI releases GPT-5
+Breaking: OpenAI releases GPT-5
 
 Unsubscribe from this newsletter.
 

@@ -37,9 +37,17 @@ function removeMediaContent(content) {
     .replace(/watch.*?here.*?\[.*?\]/gi, '');
 }
 
-// 3. Clean URLs (remove UTM parameters)
+// 3. Clean URLs (remove UTM parameters and tracking)
 function cleanUrls(content) {
-  return content.replace(/\((https?:\/\/[^\s\)]+)\?[^\)]*\)/g, '($1)');
+  return content
+    // Clean URLs in parentheses format (link) - remove everything after ?
+    .replace(/\((https?:\/\/[^\s\)]+)\?[^\)]*\)/g, '($1)')
+    // Clean URLs in markdown link format [text](url) - remove everything after ?
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\?[^\)]*\)/g, '[$1]($2)')
+    // Clean standalone URLs with UTM parameters
+    .replace(/(https?:\/\/[^\s]+)\?utm_[^\s]*/g, '$1')
+    // Clean any other tracking parameters
+    .replace(/(https?:\/\/[^\s]+)\?[^\s]*(?:utm_|ref=|track=|source=)[^\s]*/g, '$1');
 }
 
 // 4. Remove engagement queries and polls
@@ -54,15 +62,22 @@ function removeEngagementContent(content) {
     .replace(/follow us.*?(?=\n|$)/gi, '');
 }
 
-// 5. Remove ancillary language and navigation
+// 5. Remove ancillary language and navigation (enhanced)
 function removeAncillaryContent(content) {
   return content
     // Remove navigation elements
     .replace(/view more.*?(?=\n|$)/gi, '')
     .replace(/twitter widget iframe/gi, '')
     .replace(/read more.*?(?=\n|$)/gi, '')
+    // Remove "In this issue" sections
+    .replace(/in this issue[:.]*[\s\S]*?(?=\n#|$)/gi, '')
+    .replace(/^in this issue.*?(?=\n|$)/gim, '')
     // Remove repeated headlines (pattern: "- Title # Title")
     .replace(/^-\s*(.+?)\s*#\s*\1\s*$/gim, '# $1')
+    // Enhanced duplicate title removal - exact duplicates on consecutive lines
+    .replace(/^(.{10,})\s*\n+\1\s*$/gim, '$1')
+    // Remove duplicate titles with hash patterns (# Title\nTitle)
+    .replace(/^#\s*(.+?)\s*\n+\1\s*$/gim, '# $1')
     // Remove footer elements
     .replace(/unsubscribe.*?(?=\n|$)/gi, '')
     .replace(/manage preferences.*?(?=\n|$)/gi, '');
